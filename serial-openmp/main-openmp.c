@@ -172,7 +172,7 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 {
 
 	double aux = .0;
-	#pragma omp parallel for reduction(+:p[n])
+	#pragma omp parallel for reduction(+:aux)
 		for (long i = 0; i < n; i++)
 		{
 			r[i] = ((double)ran2(idum))*r0;
@@ -180,7 +180,7 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 			aux += p[i];
 		aux = aux / ((double)n);
 	}
-	#pragma omp parallel for reduction(-:p[n])
+	#pragma omp parallel for
 		for (long i = 0; i < n; i++)
 		{
 			p[i] -= aux;
@@ -188,16 +188,16 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 	return;
 }
 
-
 void KineticEnergy(long n, double *energKin, double *p)
 {
 	*energKin = .0;
-	#pragma omp parallel for reduction(+:energKin)
+	double aux = .0;
+	#pragma omp parallel for reduction(+:aux)
 		for (long i = 0; i < n; i++)
 		{
-			*energKin += p[i] * p[i];
+			aux += p[i] * p[i];
 		}
-	*energKin = *energKin / ((double)2 * n);
+	*energKin = aux / ((double)2 * n);
 	return;
 }
 
@@ -258,7 +258,7 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	mx = .0;
 	my = .0;
 	
-	#pragma omp parallel for reduction(+:p[n], r[n])
+	#pragma omp parallel for
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
@@ -266,21 +266,21 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 		}
 	
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for reduction(+:p[n], r[n])
+	#pragma omp parallel for
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D1*dt*p[i];
 		}
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for reduction(+:p[n], r[n])
+	#pragma omp parallel for
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D0*dt*p[i];
 		}
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for reduction(+:p[n])
+	#pragma omp parallel for
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
