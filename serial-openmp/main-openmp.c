@@ -65,10 +65,10 @@ int main(int argc, char **argv)
 	double time, finalTime, timeStep, timeOutput, timeCount;
 	
 
-	FILE *init = fopen("./initialPhase.dat", "w");
-	FILE *enrg = fopen("./energy.dat", "w");
-	FILE *fmag = fopen("./magnet.dat", "w");
-	FILE *finalSpace = fopen("./finalPhase.dat", "w");
+	FILE *init = fopen("./initialPhaseOMP.dat", "w");
+	FILE *enrg = fopen("./energyOMP.dat", "w");
+	FILE *fmag = fopen("./magnetOMP.dat", "w");
+	FILE *finalSpace = fopen("./finalPhaseOMP.dat", "w");
 
 
 	FILE *in = fopen("./input.in", "r");
