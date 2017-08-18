@@ -59,6 +59,7 @@ float ran2(long *idum);
 
 int main(int argc, char **argv)
 {
+	printf("1\n");
 	long n, seed, idum;
 	double p0, r0;
 	double energKin, energPot, magX, magY, energ, energ0, error;
@@ -70,6 +71,7 @@ int main(int argc, char **argv)
 	FILE *fmag = fopen("./magnetOMP.dat", "w");
 	FILE *finalSpace = fopen("./finalPhaseOMP.dat", "w");
 
+	printf("2\n");
 
 	FILE *in = fopen("./input.in", "r");
 	fscanf(in, "%ld", &n);
@@ -81,6 +83,8 @@ int main(int argc, char **argv)
 	fscanf(in, "%ld", &seed);
 	fclose(in);
 
+	printf("3\n");	
+	
 	idum = -seed;
 
 	/* Inicialização de variáveis*/
@@ -89,18 +93,26 @@ int main(int argc, char **argv)
 	magX = ran2(&idum);
 	magY = ran2(&idum);
 
+	printf("4\n");
+
 	double *r = (double *)malloc((double)n * sizeof(double));
 	double *p = (double *)malloc((double)n * sizeof(double));
 	double *force = (double *)malloc((double)n * sizeof(double));
+
+	printf("5\n");
 	
 	WaterBag(n, &idum, p0, r0, r, p);
 
-	#pragma omp parallel for
-		for (long i = 0; i < n; i++)
-		{
-			fprintf(init, "%lf\t%lf\n", r[i], p[i]);
-		}
+	printf("6\n");
 
+	#pragma omp parallel for
+	for (long i = 0; i < n; i++)
+	{
+		fprintf(init, "%lf\t%lf\n", r[i], p[i]);
+	}
+	
+	printf("7\n");
+	
 	KineticEnergy(n, &energKin, p);
 	Force(n, force, r, &magX, &magY);
 	PotentialEnergy(n, &energPot, r, magX, magY);
@@ -170,33 +182,59 @@ int main(int argc, char **argv)
 
 void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 {
-
+	long i;
 	double aux = .0;
-	#pragma omp parallel for reduction(+:aux)
-		for (long i = 0; i < n; i++)
+	
+	printf("W1\n");
+
+	#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
+		for (i = 0; i < n; i++)
 		{
 			r[i] = ((double)ran2(idum))*r0;
 			p[i] = ((double)ran2(idum) - .5)*2.*p0;
-			aux += p[i];
-		aux = aux / ((double)n);
+		}
 	}
-	#pragma omp parallel for
-		for (long i = 0; i < n; i++)
+	
+	printf("W2\n");
+	#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i) reduction(+:aux)
+		for(i = 0 ; i < n ; i++)
+		{
+			aux += p[i];
+		}
+	}
+	aux = aux / ((double)n);
+		
+	#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i) 
+		for (i = 0; i < n; i++)
 		{
 			p[i] -= aux;
 		}
+	}
 	return;
 }
 
 void KineticEnergy(long n, double *energKin, double *p)
 {
+
+	long i;
 	*energKin = .0;
 	double aux = .0;
-	#pragma omp parallel for reduction(+:aux)
-		for (long i = 0; i < n; i++)
+	
+	#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i) reduction(+:aux)
+		for (i = 0; i < n; i++)
 		{
+			printf(".");
 			aux += p[i] * p[i];
 		}
+	}
 	*energKin = aux / ((double)2 * n);
 	return;
 }
@@ -213,6 +251,8 @@ void PotentialEnergy(long n, double *energPot, double *r, double magX, double ma
 
 void Force(long n, double *force, double *r, double *magX, double *magY)
 {
+
+	long i;
 	double *as = (double *)malloc((double)n * sizeof(double));
 	double *ac = (double *)malloc((double)n * sizeof(double));
 	double aux1, aux2;
@@ -222,8 +262,10 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 	*magX = .0;
 	*magY = .0;
 
-	#pragma omp parallel for reduction(+:magX,magY)
-		for (long i = 0; i < n; i++)
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
+		for (i = 0; i < n; i++)
 		{
 			aux1 = sin(r[i]);
 			aux2 = cos(r[i]);
@@ -232,18 +274,21 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 			as[i] = aux1;
 			ac[i] = aux2;
 		}
+	}
 	#pragma omp single
 	{
 		*magX = *magX / ((double)n);
 		*magY = *magY / ((double)n);
 	}
 
-	#pragma omp parallel for
-		for (long i = 0; i < n; i++)
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
+		for (i = 0; i < n; i++)
 		{
 			force[i] = ac[i] * (*magY) - as[i] * (*magX);
 		}
-
+	}
 	free(as);
 	free(ac);
 
@@ -258,33 +303,49 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	mx = .0;
 	my = .0;
 	
-	#pragma omp parallel for
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
 			r[i] += D0*dt*p[i];
 		}
+	}
 	
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for
+	
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D1*dt*p[i];
 		}
+	}
+	
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for
+	
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D0*dt*p[i];
 		}
+	}		
 	Force(n, f, r, &mx, &my);
-	#pragma omp parallel for
+	
+#pragma omp parallel 
+	{
+		#pragma omp parallel for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
 		}
+	}
 	*magX = mx;
 	*magY = my;
 
