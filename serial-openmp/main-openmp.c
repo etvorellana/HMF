@@ -144,7 +144,7 @@ int main(int argc, char **argv)
 			error = fabs(error);
 			// Colocar aqui um if para parar a simulação quandoo errofor grande 
 			// Definir erro limite aceitavel
-			//printf("%lf\t%1.2le\t%lf\t%lf\t%lf\n", time, error, npMean, var, statMoment4);
+//			printf("%lf\t%1.2le\n", time, error);
 			timeCount = 0.0;			
 			fprintf(enrg, "%lf\t%lf\t%lf\n", time, energKin, energPot);
 			fprintf(fmag, "%lf %lf %lf %lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
@@ -185,26 +185,12 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 	long i;
 	double aux = .0;
 	
-	printf("W1\n");
-
-	#pragma omp parallel 
+	for (i = 0; i < n; i++)
 	{
-		#pragma omp for nowait private(i)
-		for (i = 0; i < n; i++)
-		{
-			r[i] = ((double)ran2(idum))*r0;
-			p[i] = ((double)ran2(idum) - .5)*2.*p0;
-		}
-		
-		#pragma omp for nowait private(i)
-		for(i = 0 ; i < n ; i++)
-		{
-			aux += p[i];
-		}
+		r[i] = ((double)ran2(idum))*r0;
+		p[i] = ((double)ran2(idum) - .5)*2.*p0;
+		aux += p[i];
 	}
-	
-	printf("W2\n");
-	
 	aux = aux / ((double)n);
 		
 	#pragma omp parallel 
@@ -254,25 +240,31 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 	double *as = (double *)malloc((double)n * sizeof(double));
 	double *ac = (double *)malloc((double)n * sizeof(double));
 	double aux1, aux2;
-
+	double magX_, magY_;
 	aux1 = .0;
 	aux2 = .0;
 	*magX = .0;
 	*magY = .0;
+	magX_ = *magX;
+	magY_ = *magY;
 
 #pragma omp parallel 
-	{
-		#pragma omp for private(i)
+	{	
+		#pragma omp for private(i, aux1, aux2) reduction(+:magX_, magY_)
 		for (i = 0; i < n; i++)
 		{
 			aux1 = sin(r[i]);
 			aux2 = cos(r[i]);
-			*magX += aux2;
-			*magY += aux1;
+			magX_ += aux2;
+			magY_ += aux1;
 			as[i] = aux1;
 			ac[i] = aux2;
 		}
 	}
+
+	*magX = magX_;
+	*magY = magY_;
+
 	#pragma omp single
 	{
 		*magX = *magX / ((double)n);
