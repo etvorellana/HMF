@@ -155,18 +155,18 @@ int main(int argc, char **argv)
 
 	double rr = .0;
     for (long i = 0; i < n; i++)
+	{
+		rr = r[i];
+		while (rr > dpi / 2.)
 		{
-			rr = r[i];
-			while (rr > dpi / 2.)
-			{
-				rr -= dpi;
-			}
-			while (rr < -dpi / 2.)
-			{
-			rr += dpi;
-			}
-		fprintf(finalSpace, "%lf\t%lf\n", r[i], p[i]);
+			rr -= dpi;
 		}
+		while (rr < -dpi / 2.)
+		{
+			rr += dpi;
+		}
+		fprintf(finalSpace, "%lf\t%lf\n", r[i], p[i]);
+	}
  
 	free(r);
 	free(p);
@@ -189,28 +189,27 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 
 	#pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for nowait private(i)
 		for (i = 0; i < n; i++)
 		{
 			r[i] = ((double)ran2(idum))*r0;
 			p[i] = ((double)ran2(idum) - .5)*2.*p0;
 		}
-	}
-	
-	printf("W2\n");
-	#pragma omp parallel 
-	{
-		#pragma omp parallel for private(i) reduction(+:aux)
+		
+		#pragma omp for nowait private(i)
 		for(i = 0 ; i < n ; i++)
 		{
 			aux += p[i];
 		}
 	}
+	
+	printf("W2\n");
+	
 	aux = aux / ((double)n);
 		
 	#pragma omp parallel 
 	{
-		#pragma omp parallel for private(i) 
+		#pragma omp for private(i) 
 		for (i = 0; i < n; i++)
 		{
 			p[i] -= aux;
@@ -228,10 +227,9 @@ void KineticEnergy(long n, double *energKin, double *p)
 	
 	#pragma omp parallel 
 	{
-		#pragma omp parallel for private(i) reduction(+:aux)
+		#pragma omp for private(i) reduction(+:aux)
 		for (i = 0; i < n; i++)
 		{
-			printf(".");
 			aux += p[i] * p[i];
 		}
 	}
@@ -264,7 +262,7 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i < n; i++)
 		{
 			aux1 = sin(r[i]);
@@ -283,7 +281,7 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i < n; i++)
 		{
 			force[i] = ac[i] * (*magY) - as[i] * (*magX);
@@ -305,7 +303,7 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
@@ -317,7 +315,7 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
@@ -329,7 +327,7 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
@@ -340,7 +338,7 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	
 #pragma omp parallel 
 	{
-		#pragma omp parallel for private(i)
+		#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
