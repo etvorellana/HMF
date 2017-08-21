@@ -49,6 +49,8 @@
 #define EPS 1.2e-7
 #define RNMX (1.0-EPS)
 
+#define RMAX 1.0E-5
+
 void Integration(long n, double dt, double *magX, double *magY, double *r, double *p, double *f);
 void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p);
 void KineticEnergy(long n, double *energKin, double *p);
@@ -136,9 +138,12 @@ int main(int argc, char **argv)
 			// Colocar aqui um if para parar a simulação quandoo errofor grande 
 			// Definir erro limite aceitavel
 			//printf("%lf\t%1.2le\t%lf\t%lf\t%lf\n", time, error, npMean, var, statMoment4);
+			if (error > RMAX){
+				printf("%lf\t%1.2le\n", time, error);
+			}
 			timeCount = 0.0;			
-			fprintf(enrg, "%lf\t%lf\t%lf\n", time, energKin, energPot);
-			fprintf(fmag, "%lf %lf %lf %lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
+			fprintf(enrg, "%lf\t%.12lf\t%.12lf\n", time, energKin, energPot);
+			fprintf(fmag, "%lf %.12lf %.12lf %.12lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
 		}
 	}
 

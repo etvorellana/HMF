@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <mpi.h>
 
 #define pi	3.14159265359
 #define dpi	6.28318530718
@@ -49,61 +50,112 @@
 #define EPS 1.2e-7
 #define RNMX (1.0-EPS)
 
-void Integration(long n, double dt, double *magX, double *magY, double *r, double *p, double *f);
+#define RMAX 1.0E-5
+
+//void Integration(long n, double dt, double *magX, double *magY, double *r, double *p, double *f);
+void Integration(long n, long nLoc, double dt, double *magX, double *magY, double *r, double *p, double *f);
 void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p);
-void KineticEnergy(long n, double *energKin, double *p);
-void PotentialEnergy(long n, double *energPot, double *r, double magX, double magY);
-void Force(long n, double *force, double *r, double *magX, double *magY);
+//void KineticEnergy(long n, double *energKin, double *p);
+void KineticEnergy(long n, long nLoc, double *energKin, double *p);
+//void PotentialEnergy(long n, double *energPot, double *r, double magX, double magY);
+//void PotentialEnergy(double *energPot, double *r, double magX, double magY);
+void PotentialEnergy(double *energPot, double magX, double magY);
+//void Force(long n, double *force, double *r, double *magX, double *magY);
+void Force(long n, long nLoc, double *force, double *r, double *magX, double *magY);
 float ran2(long *idum);
 
 int main(int argc, char **argv)
 {
-	long n, seed, idum;
+	long n, nLoc, seed, idum;
 	double p0, r0;
 	double energKin, energPot, magX, magY, energ, energ0, error;
 	double time, finalTime, timeStep, timeOutput, timeCount;
-	
+	double *r, *p, *r_, *p_, *force;
+	FILE *init, *enrg, *fmag, *finalSpace;
+	  
+	MPI_Init(NULL, NULL);
 
-	FILE *init = fopen("./initialPhase.dat", "w");
-	FILE *enrg = fopen("./energy.dat", "w");
-	FILE *fmag = fopen("./magnet.dat", "w");
-	FILE *finalSpace = fopen("./finalPhase.dat", "w");
+	int world_rank; //Qual o rank do proceso no COMM_WORLD
+	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+	int world_size; //Quantos processos no COMM_WORLD
+	MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+	//Abrindo os arquivos de saída no rank 0
+	if(world_rank == 0){
+		init = fopen("./initialPhase.dat", "w");
+		enrg = fopen("./energy.dat", "w");
+		fmag = fopen("./magnet.dat", "w");
+		finalSpace = fopen("./finalPhase.dat", "w");
+		
+		FILE *in = fopen("input.in", "r");
 	
-	n = 400000;
-	finalTime = 100.;
-	timeStep = .1;
-	timeOutput = .1;
-	p0 = 0.4;
-	r0 = pi;
-	seed = 10;
-	idum = -seed;
-
-	/* Inicialização de variáveis*/
-	energKin = ran2(&idum);
-	energPot = ran2(&idum);
-	magX = ran2(&idum);
-	magY = ran2(&idum);
-
-	double *r = (double *)malloc((double)n * sizeof(double));
-	double *p = (double *)malloc((double)n * sizeof(double));
-	double *force = (double *)malloc((double)n * sizeof(double));
-	
-	WaterBag(n, &idum, p0, r0, r, p);
-	
-	for (long i = 0; i < n; i++)
-	{
-		fprintf(init, "%lf\t%lf\n", r[i], p[i]);
+		fscanf(in, "%ld", &n);			//Total de partículas
+		fscanf(in, "%lf", &finalTime);	//Tempo total de simulação
+		fscanf(in, "%lf", &timeStep);	//Passo de tempo
+		fscanf(in, "%lf", &timeOutput);	//Passo para arquivo de saída
+		fscanf(in, "%lf", &p0);			//?
+		fscanf(in, "%lf", &r0);			//?
+		fscanf(in, "%ld", &seed);		//?
+		
+		fclose(in);
+		idum = -seed;
+		
+		energKin = ran2(&idum);
+		energPot = ran2(&idum);
+		magX = ran2(&idum);
+		magY = ran2(&idum);
 	}
+	//Aguardamos o rank 0 concluir
+	MPI_Barrier(MPI_COMM_WORLD);
+	//Fazendo um broadcast para os outros rank
+	MPI_Bcast(&n, 1, MPI_LONG, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&finalTime, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&timeStep, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&timeOutput, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&p0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&r0, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&seed, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&energKin, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&energPot, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&magX, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Bcast(&magY, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	
-	KineticEnergy(n, &energKin, p);
-	Force(n, force, r, &magX, &magY);
-	PotentialEnergy(n, &energPot, r, magX, magY);
+	nLoc = n/world_size;//Quantidade de partículas em cada processo
+	
+	//Alocando os vetores r, p e force
+	if(world_rank == 0){ //no rank 0 eles tem n elementos
+		r = (double *)malloc((size_t) (n * sizeof(double)));
+		p = (double *)malloc((size_t) (n * sizeof(double)));
+	}
+	r_ = (double *)malloc((size_t) (nLoc * sizeof(double)));
+	p_ = (double *)malloc((size_t) (nLoc * sizeof(double)));
+	force = (double *)malloc((size_t) (nLoc * sizeof(double)));
+	
+	//Inicializando r e p em rank 0
+	if(world_rank == 0){
+		WaterBag(n, &idum, p0, r0, r, p);
+		for (long i = 0; i < n; i++)
+		{
+			fprintf(init, "%lf\t%lf\n", r[i], p[i]);
+		}
+	}
+	MPI_Barrier(MPI_COMM_WORLD);
+	//distribuindo r e p para os outros ranks 
+	MPI_Scatter(r, nLoc, MPI_DOUBLE, r_, nLoc, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Scatter(p, nLoc, MPI_DOUBLE, p_, nLoc, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	KineticEnergy(n, nLoc, &energKin, p_);
+	Force(n, nLoc,force, r_, &magX, &magY);
+	PotentialEnergy(&energPot, magX, magY);
 	energ0 = energKin + energPot;
-
-	//cout << "Energia Cinetica Inicial: " << energKin << endl;
-	//cout << "Energia Potencial Inicial: " << energPot << endl;
-	//cout << "Energia Total Inicial: " << energ0 << endl;
-	//cout << "Magnetizacoes iniciais:   MagX: " << magX << "  MagY: " << magY << endl;
+	if(world_rank == 0){
+		//cout << "Energia Cinetica Inicial: " << energKin << endl;
+		printf("Energia Cinetica Inicial: %lf \n", energKin);
+		//cout << "Energia Potencial Inicial: " << energPot << endl;
+		printf("Energia Potencial Inicial: %lf \n", energPot);
+		//cout << "Energia Total Inicial: " << energ0 << endl;
+		printf("Energia Total Inicial: %lf \n", energ0);
+		//cout << "Magnetizacoes iniciais:   MagX: " << magX << "  MagY: " << magY << endl;
+		printf("Magnetizacoes iniciais:   MagX: %lf  MagY: %lf\n", magX, magY);
+	} 
 	error = .0;
 	time = .0;
 	timeCount = .0;
@@ -111,51 +163,73 @@ int main(int argc, char **argv)
 	while (time < finalTime)
 	{
 			
-		Integration(n, timeStep, &magX, &magY, r, p, force);
+		Integration(n, nLoc, timeStep, &magX, &magY, r_, p_, force);
 
 		time += timeStep;
 		timeCount += timeStep;
 
 		if (timeCount >= timeOutput)
 		{
-			KineticEnergy(n, &energKin, p);
-			PotentialEnergy(n, &energPot, r, magX, magY);
+			KineticEnergy(n, nLoc, &energKin, p_);
+			PotentialEnergy(&energPot, magX, magY);
 			energ = energKin + energPot;
 			error = (energ - energ0) / energ0;
 			error = fabs(error);
 			// Colocar aqui um if para parar a simulação quandoo errofor grande 
 			// Definir erro limite aceitavel
 			//printf("%lf\t%1.2le\t%lf\t%lf\t%lf\n", time, error, npMean, var, statMoment4);
-			timeCount = 0.0;			
-			fprintf(enrg, "%lf\t%lf\t%lf\n", time, energKin, energPot);
-			fprintf(fmag, "%lf %lf %lf %lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
+			timeCount = 0.0;
+			if(world_rank == 0){			
+				fprintf(enrg, "%lf\t%.12lf\t%.12lf\n", time, energKin, energPot);
+				fprintf(fmag, "%lf %.12lf %.12lf %.12lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
+				if (error > RMAX){
+					printf("%lf\t%1.2le\n", time, error);
+				}
+			}
+			//Aguardamos o rank 0 concluir
+			MPI_Barrier(MPI_COMM_WORLD);
 		}
 	}
-
-	printf("Salvando os espacos de fase finais\n");
-
+	
+	
+	if(world_rank == 0){
+		printf("Salvando os espacos de fase finais\n");
+	}
+	
+	MPI_Gather(r_, nLoc, MPI_DOUBLE, r, nLoc, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	MPI_Gather(p_, nLoc, MPI_DOUBLE, p, nLoc, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	
 	double rr = .0;
-	for (long i = 0; i < n; i++)
-	{
-		rr = r[i];
-		while (rr > dpi / 2.){
-			rr -= dpi;
+	if(world_rank == 0){
+		for (long i = 0; i < n; i++)
+		{
+			rr = r[i];
+			while (rr > dpi / 2.){
+				rr -= dpi;
+			}
+			while (rr < -dpi / 2.){
+				rr += dpi;
+			}
+			fprintf(finalSpace, "%lf\t%lf\n", r[i], p[i]);
 		}
-		while (rr < -dpi / 2.){
-			rr += dpi;
-		}
-		fprintf(finalSpace, "%lf\t%lf\n", r[i], p[i]);
+		free(r);
+		free(p);
+		fclose(enrg);
+		fclose(finalSpace);
+		fclose(fmag);
+		fclose(init);
 	}
-
-	free(r);
-	free(p);
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+	free(r_);
+	MPI_Barrier(MPI_COMM_WORLD);
+	free(p_);
+	MPI_Barrier(MPI_COMM_WORLD);
 	free(force);
-
-	fclose(enrg);
-	fclose(finalSpace);
-	fclose(fmag);
-	fclose(init);
-
+	MPI_Barrier(MPI_COMM_WORLD);
+	
+	MPI_Barrier(MPI_COMM_WORLD);
+	MPI_Finalize();
 	return 0;
 }
 
@@ -179,20 +253,22 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 	return;
 }
 
-void KineticEnergy(long n, double *energKin, double *p)
+void KineticEnergy(long n, long nLoc, double *energKin, double *p)
 {
-	*energKin = .0;
+	double energLocal;
+	*energKin = energLocal = .0;
 
-	for (long i = 0; i < n; i++)
+	for (long i = 0; i < nLoc; i++)
 	{
-		*energKin += p[i] * p[i];
+		energLocal += p[i] * p[i];
 	}
-
+	//MPI_Allreduce(&energLocal, energKin, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+	MPI_Reduce(&energLocal, energKin, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 	*energKin = *energKin / ((double)2 * n);
 	return;
 }
 
-void PotentialEnergy(long n, double *energPot, double *r, double magX, double magY)
+void PotentialEnergy(double *energPot, double magX, double magY)
 {
 	*energPot = .0;
 	*energPot = .5*(1. - magX*magX - magY*magY);
@@ -200,30 +276,37 @@ void PotentialEnergy(long n, double *energPot, double *r, double magX, double ma
 	return;
 }
 
-void Force(long n, double *force, double *r, double *magX, double *magY)
+void Force(long n, long nLoc, double *force, double *r, double *magX, double *magY)
 {
-	double *as = (double *)malloc((double)n * sizeof(double));
-	double *ac = (double *)malloc((double)n * sizeof(double));
+	double *as = (double *)malloc(n * sizeof(double));
+	double *ac = (double *)malloc(n * sizeof(double));
 	double aux1, aux2;
-
+	double magX_, magY_;
 	aux1 = .0;
 	aux2 = .0;
-	*magX = .0;
-	*magY = .0;
-	for (long i = 0; i < n; i++)
+	*magX = magX_ = .0;
+	*magY = magY_ = .0;
+	for (long i = 0; i < nLoc; i++)
 	{
 		aux1 = sin(r[i]);
 		aux2 = cos(r[i]);
-		*magX += aux2;
-		*magY += aux1;
+		magX_ += aux2;
+		magY_ += aux1;
 		as[i] = aux1;
 		ac[i] = aux2;
 	}
-
+	//MPI_Allreduce(sendbuf,recvbuf,  count,datatype,  op,   comm)
+	MPI_Allreduce(&magX_, magX, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+	//MPI_Reduce(&magX_, magX, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	//MPI_Bcast(magX, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+	//MPI_Allreduce(sendbuf,recvbuf,  count,datatype,  op,   comm)
+	MPI_Allreduce(&magY_, magY, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+	//MPI_Reduce(&magY_, magY, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+	//MPI_Bcast(magY, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 	*magX = *magX / ((double)n);
 	*magY = *magY / ((double)n);
 
-	for (long i = 0; i < n; i++)
+	for (long i = 0; i < nLoc; i++)
 	{
 		force[i] = ac[i] * (*magY) - as[i] * (*magX);
 	}
@@ -233,43 +316,42 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 
 	return;
 }
-
-void Integration(long n, double dt, double *magX, double *magY, double *r, double *p, double *f)
+					  
+void Integration(long n, long nLoc, double dt, double *magX, double *magY, double *r, double *p, double *f)
 {
 	long i;
 	double mx, my;
 
 	mx = .0;
 	my = .0;
-	for (i = 0; i<n; i++)
+	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B0*dt*f[i];
 		r[i] += D0*dt*p[i];
 	}
 
-	Force(n, f, r, &mx, &my);
-	for (i = 0; i<n; i++)
+	Force(n, nLoc, f, r, &mx, &my);
+	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B1*dt*f[i];
 		r[i] += D1*dt*p[i];
 	}
 
-	Force(n, f, r, &mx, &my);
-	for (i = 0; i<n; i++)
+	Force(n, nLoc, f, r, &mx, &my);
+	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B1*dt*f[i];
 		r[i] += D0*dt*p[i];
 	}
 
-	Force(n, f, r, &mx, &my);
-	for (i = 0; i<n; i++)
+	Force(n, nLoc, f, r, &mx, &my);
+	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B0*dt*f[i];
 	}
 
 	*magX = mx;
 	*magY = my;
-
 
 	return;
 }
@@ -309,4 +391,3 @@ float ran2(long *idum)
 	if ((temp = AM*iy) > RNMX) return RNMX;
 	else return temp;
 }
-
