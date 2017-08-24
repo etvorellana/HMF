@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <mpi.h>
+#include <omp.h>
 
 #define pi	3.14159265359
 #define dpi	6.28318530718
@@ -66,15 +67,20 @@ float ran2(long *idum);
 
 int main(int argc, char **argv)
 {
+	
+	double t_0, t_F, dT;
+	t_0 = omp_get_wtime();
+	
 	long n, nLoc, seed, idum;
 	double p0, r0;
 	double energKin, energPot, magX, magY, energ, energ0, error;
 	double time, finalTime, timeStep, timeOutput, timeCount;
 	double *r, *p, *r_, *p_, *force;
-	FILE *init, *enrg, *fmag, *finalSpace;
-	  
+	
 	MPI_Init(NULL, NULL);
-
+	
+	FILE *init, *enrg, *fmag, *finalSpace;
+	
 	int world_rank; //Qual o rank do proceso no COMM_WORLD
 	MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 	int world_size; //Quantos processos no COMM_WORLD
@@ -229,7 +235,14 @@ int main(int argc, char **argv)
 	MPI_Barrier(MPI_COMM_WORLD);
 	
 	MPI_Barrier(MPI_COMM_WORLD);
+	
+	if(world_rank == 0){
+		t_F = omp_get_wtime();
+		printf("d_T = %lf\n", t_F - t_0);
+	}
+	
 	MPI_Finalize();
+
 	return 0;
 }
 

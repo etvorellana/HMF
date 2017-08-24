@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <omp.h>
 
 #define pi	3.14159265359
 #define dpi	6.28318530718
@@ -60,11 +61,14 @@ float ran2(long *idum);
 
 int main(int argc, char **argv)
 {
+	double t_0, t_F, dT;
+	t_0 = omp_get_wtime();
+	
 	long n, seed, idum;
 	double p0, r0;
 	double energKin, energPot, magX, magY, energ, energ0, error;
 	double time, finalTime, timeStep, timeOutput, timeCount;
-
+	
 	FILE *init = fopen("./initialPhase.dat", "w");
 	FILE *enrg = fopen("./energy.dat", "w");
 	FILE *fmag = fopen("./magnet.dat", "w");
@@ -80,7 +84,7 @@ int main(int argc, char **argv)
 	fscanf(in, "%lf", &r0);
 	fscanf(in, "%ld", &seed);
 	fclose(in);
-
+	
 	idum = -seed;
 	/* Inicialização de variáveis*/
 	energKin = ran2(&idum);
@@ -94,28 +98,22 @@ int main(int argc, char **argv)
 	
 	WaterBag(n, &idum, p0, r0, r, p);
 	
+
 	for (long i = 0; i < n; i++)
 	{
 		fprintf(init, "%lf\t%lf\n", r[i], p[i]);
 	}
 	
 	KineticEnergy(n, &energKin, p);
-	Force(n, force, r, &magX, &magY);
-	//printf("Em Rank %d de %d f: %lf %lf %lf %lf %lf \n", 0, 1, 
-		//force[0], force[1], force[2], force[3], force[4]);
-	//printf("Em Rank %d de %d f: %lf %lf %lf %lf %lf \n", 0, 1, 
-		//force[5], force[6], force[7], force[8], force[9]);	
+	Force(n, force, r, &magX, &magY);	
 	PotentialEnergy(n, &energPot, r, magX, magY);
 	energ0 = energKin + energPot;
 
-	//cout << "Energia Cinetica Inicial: " << energKin << endl;
 	printf("Energia Cinetica Inicial: %lf \n", energKin);
-	//cout << "Energia Potencial Inicial: " << energPot << endl;
 	printf("Energia Potencial Inicial: %lf \n", energPot);
-	//cout << "Energia Total Inicial: " << energ0 << endl;
 	printf("Energia Total Inicial: %lf \n", energ0);
-	//cout << "Magnetizacoes iniciais:   MagX: " << magX << "  MagY: " << magY << endl;
 	printf("Magnetizacoes iniciais:   MagX: %lf  MagY: %lf\n", magX, magY);
+	
 	error = .0;
 	time = .0;
 	timeCount = .0;
@@ -127,7 +125,7 @@ int main(int argc, char **argv)
 
 		time += timeStep;
 		timeCount += timeStep;
-
+		
 		if (timeCount >= timeOutput)
 		{
 			KineticEnergy(n, &energKin, p);
@@ -135,20 +133,18 @@ int main(int argc, char **argv)
 			energ = energKin + energPot;
 			error = (energ - energ0) / energ0;
 			error = fabs(error);
-			// Colocar aqui um if para parar a simulação quandoo errofor grande 
-			// Definir erro limite aceitavel
-			//printf("%lf\t%1.2le\t%lf\t%lf\t%lf\n", time, error, npMean, var, statMoment4);
 			if (error > RMAX){
 				printf("%lf\t%1.2le\n", time, error);
 			}
-			timeCount = 0.0;			
+			timeCount = 0.0;
+	
 			fprintf(enrg, "%lf\t%.12lf\t%.12lf\n", time, energKin, energPot);
 			fprintf(fmag, "%lf %.12lf %.12lf %.12lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
 		}
 	}
-
+	
 	printf("Salvando os espacos de fase finais\n");
-
+	
 	double rr = .0;
 	for (long i = 0; i < n; i++)
 	{
@@ -170,7 +166,9 @@ int main(int argc, char **argv)
 	fclose(finalSpace);
 	fclose(fmag);
 	fclose(init);
-
+	
+	t_F = omp_get_wtime();
+	printf("d_T = %lf\n", t_F - t_0);
 	return 0;
 }
 
