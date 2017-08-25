@@ -3,35 +3,10 @@
 #include <math.h>
 #include <omp.h>
 
-#define	pi	3.14159265359
-#define dpi	6.28318530718
-#define B0   0.675603595979828813
-#define B1  -0.175603595979828813
-#define D0   1.35120719195965763
-#define D1  -1.70241438391931525
-
-#define IM1 2147483563
-#define IM2 2147483399
-#define AM (1.0/IM1)
-#define IMM1 (IM1-1)
-#define IA1 40014
-#define IA2 40692
-#define IQ1 53668
-#define IQ2 52774
-#define IR1 12211
-#define IR2 3791
-#define NTAB 32
-#define NDIV (1+IMM1/NTAB)
-#define EPS 1.2e-7
-#define RNMX (1.0-EPS)
-
-/*
-*	Function prototype
-*/
-
-float ran2(long *idum);
-
 #include "openmpLibs.h"
+
+
+//Coloquei todos os cabeçalhos e definições para a openLibs.h
 
 void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 {
@@ -46,14 +21,15 @@ void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 	}
 	aux = aux / ((double)n);
 		
-	#pragma omp parallel 
-	{
-		#pragma omp for private(i) 
+	//#pragma omp parallel
+	#pragma omp parallel for 
+	//{
+		//#pragma omp for private(i) 
 		for (i = 0; i < n; i++)
 		{
 			p[i] -= aux;
 		}
-	}
+	//}
 	return;
 }
 
@@ -64,21 +40,25 @@ void KineticEnergy(long n, double *energKin, double *p)
 	*energKin = .0;
 	double aux = .0;
 	
-	#pragma omp parallel 
-	{
-		#pragma omp for private(i) reduction(+:aux)
+	
+	//Usar construtores compostos é mais eficiente 
+	//#pragma omp parallel
+	#pragma omp parallel for reduction(+:aux)
+	//{
+		//#pragma omp for private(i) reduction(+:aux)
 		for (i = 0; i < n; i++)
 		{
 			aux += p[i] * p[i];
 		}
-	}
+	//}
 	*energKin = aux / ((double)2 * n);
 	return;
 }
 
 void PotentialEnergy(long n, double *energPot, double *r, double magX, double magY)
 {
-	#pragma omp single
+	//Vc não tem uma região paralela para usar aqui um single
+	//#pragma omp single
 	{
 		*energPot = .0;
 		*energPot = .5*(1. - magX*magX - magY*magY);
@@ -100,10 +80,12 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 	*magY = .0;
 	magX_ = *magX;
 	magY_ = *magY;
-
-#pragma omp parallel 
+// vou muadar algumas coisas aqui para ficar mais imples
+//#pragma omp parallel
+	#pragma omp parallel private(aux1, aux2)
 	{	
-		#pragma omp for private(i, aux1, aux2) reduction(+:magX_, magY_)
+		//#pragma omp for private(i, aux1, aux2) reduction(+:magX_, magY_)
+		#pragma omp for reduction(+:magX_, magY_)
 		for (i = 0; i < n; i++)
 		{
 			aux1 = sin(r[i]);
@@ -113,20 +95,23 @@ void Force(long n, double *force, double *r, double *magX, double *magY)
 			as[i] = aux1;
 			ac[i] = aux2;
 		}
-	}
+	//} Não pode fechar aqui
 
-	*magX = magX_;
-	*magY = magY_;
+		//*magX = magX_;
+		//*magY = magY_;
 
-	#pragma omp single
-	{
-		*magX = *magX / ((double)n);
-		*magY = *magY / ((double)n);
-	}
+		#pragma omp single
+		{
+			//*magX = *magX / ((double)n);
+			*magX = magX_ / ((double)n);
+			//*magY = *magY / ((double)n);
+			*magY = magY_ / ((double)n);
+		}
 
-#pragma omp parallel 
-	{
-		#pragma omp for private(i)
+//#pragma omp parallel 
+	//{
+		//#pragma omp for private(i)
+		#pragma omp for
 		for (i = 0; i < n; i++)
 		{
 			force[i] = ac[i] * (*magY) - as[i] * (*magX);
@@ -146,49 +131,53 @@ void Integration(long n, double dt, double *magX, double *magY, double *r, doubl
 	mx = .0;
 	my = .0;
 	
-#pragma omp parallel 
-	{
-		#pragma omp for private(i)
+//#pragma omp parallel
+	#pragma omp parallel for
+	//{
+		//#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
 			r[i] += D0*dt*p[i];
 		}
-	}
+	//}
 	
 	Force(n, f, r, &mx, &my);
 	
-#pragma omp parallel 
-	{
-		#pragma omp for private(i)
+//#pragma omp parallel
+	#pragma omp parallel for
+	//{
+		//#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D1*dt*p[i];
 		}
-	}
+	//}
 	
 	Force(n, f, r, &mx, &my);
 	
-#pragma omp parallel 
-	{
-		#pragma omp for private(i)
+//#pragma omp parallel
+	#pragma omp parallel for
+	//{
+		//#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B1*dt*f[i];
 			r[i] += D0*dt*p[i];
 		}
-	}		
+	//}		
 	Force(n, f, r, &mx, &my);
 	
-#pragma omp parallel 
-	{
-		#pragma omp for private(i)
+//#pragma omp parallel
+	#pragma omp parallel for
+	//{
+		//#pragma omp for private(i)
 		for (i = 0; i<n; i++)
 		{
 			p[i] += B0*dt*f[i];
 		}
-	}
+	//}
 	*magX = mx;
 	*magY = my;
 

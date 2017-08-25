@@ -30,12 +30,11 @@
 
 #include "openmpLibs.h"
 
-#define	pi	3.14159265359
-#define dpi	6.28318530718
-
-
 int main(int argc, char **argv)
 {
+	double t_0, t_F, dT;
+	t_0 = omp_get_wtime();
+	
 	long n, seed, idum;
 	double p0, r0;
 	double energKin, energPot, magX, magY, energ, energ0, error;
@@ -72,8 +71,8 @@ int main(int argc, char **argv)
 	double *force = (double *)malloc((double)n * sizeof(double));
 	
 	WaterBag(n, &idum, p0, r0, r, p);
-
-	#pragma omp parallel for
+	//A escrita em disco não adianta ser paralelizada, pode dar m...
+	//#pragma omp parallel for
 	for (long i = 0; i < n; i++)
 	{
 		fprintf(init, "%lf\t%lf\n", r[i], p[i]);
@@ -83,11 +82,13 @@ int main(int argc, char **argv)
 	Force(n, force, r, &magX, &magY);
 	PotentialEnergy(n, &energPot, r, magX, magY);
 	energ0 = energKin + energPot;
-
-	//cout << "Energia Cinetica Inicial: " << energKin << endl;
-	//cout << "Energia Potencial Inicial: " << energPot << endl;
-	//cout << "Energia Total Inicial: " << energ0 << endl;
-	//cout << "Magnetizacoes iniciais:   MagX: " << magX << "  MagY: " << magY << endl;
+	
+	
+	printf("Energia Cinetica Inicial: %lf \n", energKin);
+	printf("Energia Potencial Inicial: %lf \n", energPot);
+	printf("Energia Total Inicial: %lf \n", energ0);
+	printf("Magnetizacoes iniciais:   MagX: %lf  MagY: %lf\n", magX, magY);
+	
 
 	error = .0;
 	time = .0;
@@ -108,9 +109,10 @@ int main(int argc, char **argv)
 			energ = energKin + energPot;
 			error = (energ - energ0) / energ0;
 			error = fabs(error);
-			// Colocar aqui um if para parar a simulação quandoo errofor grande 
-			// Definir erro limite aceitavel
-//			printf("%lf\t%1.2le\n", time, error);
+			if (error > RMAX){
+				printf("%lf\t%1.2le\n", time, error);
+			}
+			
 			timeCount = 0.0;			
 			fprintf(enrg, "%lf\t%lf\t%lf\n", time, energKin, energPot);
 			fprintf(fmag, "%lf %lf %lf %lf\n", time, magX, magY, sqrt(magX*magX + magY*magY));
@@ -142,6 +144,8 @@ int main(int argc, char **argv)
 	fclose(finalSpace);
 	fclose(fmag);
 	fclose(init);
-
+	t_F = omp_get_wtime();
+	printf("d_T = %lf\n", t_F - t_0);
+	
 	return 0;
 }
