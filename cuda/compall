@@ -1,0 +1,1 @@
+nvcc simp.cu condini.cu ran2.cu kinetic.cu kin_aux.cu timestep.cu force.cu force_aux.cu force_aux2.cu step_type1.cu step_type2.cu verif.cu verif_aux.cu save_seq.cu standard_dev.cu standard_aux.cu correlations.cu correl_aux.cu compute_sojourn.cu -lm -o simp.exe -arch=sm_21
