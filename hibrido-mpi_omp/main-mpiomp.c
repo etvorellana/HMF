@@ -76,8 +76,15 @@ int main(int argc, char **argv)
 	double energKin, energPot, magX, magY, energ, energ0, error;
 	double time, finalTime, timeStep, timeOutput, timeCount;
 	double *r, *p, *r_, *p_, *force;
+	int provided, claimed;
 	
-	MPI_Init(NULL, NULL);
+	//MPI_Init(NULL, NULL);
+	MPI_Init_thread( NULL, NULL, MPI_THREAD_FUNNELED, &provided );
+	MPI_Query_thread( &claimed );
+    if (claimed != provided) {
+        printf( "Query thread gave thread level %d but Init_thread gave %d\n", claimed, provided );
+        fflush(stdout);
+    }
 	
 	FILE *init, *enrg, *fmag, *finalSpace;
 	
@@ -165,7 +172,6 @@ int main(int argc, char **argv)
 	error = .0;
 	time = .0;
 	timeCount = .0;
-	
 	MPI_Barrier(MPI_COMM_WORLD);
 	while (time < finalTime)
 	{
@@ -182,9 +188,6 @@ int main(int argc, char **argv)
 			energ = energKin + energPot;
 			error = (energ - energ0) / energ0;
 			error = fabs(error);
-			// Colocar aqui um if para parar a simulação quandoo errofor grande 
-			// Definir erro limite aceitavel
-			//printf("%lf\t%1.2le\t%lf\t%lf\t%lf\n", time, error, npMean, var, statMoment4);
 			timeCount = 0.0;
 			if(world_rank == 0){			
 				fprintf(enrg, "%lf\t%.12lf\t%.12lf\n", time, energKin, energPot);
@@ -244,21 +247,22 @@ int main(int argc, char **argv)
 
 void WaterBag(long n, long *idum, double p0, double r0, double *r, double *p)
 {
-
+	long i;
 	double aux = .0;
-	for (long i = 0; i < n; i++)
+	
+	for (i = 0; i < n; i++)
 	{
 		r[i] = ((double)ran2(idum))*r0;
 		p[i] = ((double)ran2(idum) - .5)*2.*p0;
 		aux += p[i];
 	}
 	aux = aux / ((double)n);
-
-	for (long i = 0; i < n; i++)
+		
+	#pragma omp parallel for  
+	for (i = 0; i < n; i++)
 	{
 		p[i] -= aux;
 	}
-
 	return;
 }
 
@@ -266,12 +270,12 @@ void KineticEnergy(long n, long nLoc, double *energKin, double *p)
 {
 	double energLocal;
 	*energKin = energLocal = .0;
-
+	
+	#pragma omp parallel for reduction(+:energLocal)
 	for (long i = 0; i < nLoc; i++)
 	{
 		energLocal += p[i] * p[i];
 	}
-	//MPI_Allreduce(&energLocal, energKin, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
 	MPI_Reduce(&energLocal, energKin, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 	*energKin = *energKin / ((double)2 * n);
 	return;
@@ -295,29 +299,29 @@ void Force(long n, long nLoc, double *force, double *r, double *magX, double *ma
 	aux2 = .0;
 	*magX = magX_ = .0;
 	*magY = magY_ = .0;
-	for (long i = 0; i < nLoc; i++)
+	#pragma omp parallel private(aux1, aux2)
 	{
-		aux1 = sin(r[i]);
-		aux2 = cos(r[i]);
-		magX_ += aux2;
-		magY_ += aux1;
-		as[i] = aux1;
-		ac[i] = aux2;
-	}
-	//MPI_Allreduce(sendbuf,recvbuf,  count,datatype,  op,   comm)
-	MPI_Allreduce(&magX_, magX, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-	//MPI_Reduce(&magX_, magX, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-	//MPI_Bcast(magX, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	//MPI_Allreduce(sendbuf,recvbuf,  count,datatype,  op,   comm)
-	MPI_Allreduce(&magY_, magY, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-	//MPI_Reduce(&magY_, magY, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-	//MPI_Bcast(magY, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-	*magX = *magX / ((double)n);
-	*magY = *magY / ((double)n);
-
-	for (long i = 0; i < nLoc; i++)
-	{
-		force[i] = ac[i] * (*magY) - as[i] * (*magX);
+		#pragma omp for reduction(+:magX_, magY_)
+		for (long i = 0; i < nLoc; i++){
+			aux1 = sin(r[i]);
+			aux2 = cos(r[i]);
+			magX_ += aux2;
+			magY_ += aux1;
+			as[i] = aux1;
+			ac[i] = aux2;
+		}
+		#pragma omp master
+		{
+			MPI_Allreduce(&magX_, magX, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+			MPI_Allreduce(&magY_, magY, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+			*magX = *magX / ((double)n);
+			*magY = *magY / ((double)n);
+		}
+		#pragma omp barrier
+		#pragma omp for
+		for (long i = 0; i < nLoc; i++){
+			force[i] = ac[i] * (*magY) - as[i] * (*magX);
+		}
 	}
 
 	free(as);
@@ -333,6 +337,7 @@ void Integration(long n, long nLoc, double dt, double *magX, double *magY, doubl
 
 	mx = .0;
 	my = .0;
+	#pragma omp parallel for
 	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B0*dt*f[i];
@@ -340,6 +345,7 @@ void Integration(long n, long nLoc, double dt, double *magX, double *magY, doubl
 	}
 
 	Force(n, nLoc, f, r, &mx, &my);
+	#pragma omp parallel for
 	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B1*dt*f[i];
@@ -347,6 +353,7 @@ void Integration(long n, long nLoc, double dt, double *magX, double *magY, doubl
 	}
 
 	Force(n, nLoc, f, r, &mx, &my);
+	#pragma omp parallel for
 	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B1*dt*f[i];
@@ -354,6 +361,7 @@ void Integration(long n, long nLoc, double dt, double *magX, double *magY, doubl
 	}
 
 	Force(n, nLoc, f, r, &mx, &my);
+	#pragma omp parallel for
 	for (i = 0; i<nLoc; i++)
 	{
 		p[i] += B0*dt*f[i];
